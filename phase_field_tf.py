@@ -12,6 +12,7 @@ import PIL.Image
 from io import BytesIO
 from IPython.display import clear_output, Image, display
 import h5py
+from elastic import *
 
 def DisplayArray(a, fmt='jpeg', rng=[0,1]):
   """Display an array as a picture."""
@@ -104,172 +105,6 @@ dtr=tf.constant(dt,dtype=tf.complex64)
 
 Tr=tf.constant(Tr1,dtype=tf.complex64)
 
-def elastic_constant_3d(T0,HH,KK,LL,N):
-  mod=((HH)**2+(KK)**2+(LL)**2)**(0.5)
-  mod[mod==0]=99999999999999999999
-  n1=HH/mod
-  n2=KK/mod
-  n3=LL/mod
-  n=np.zeros((3,N,N,N))
-  n[0,:,:,:]=n1
-  n[1,:,:,:]=n2
-  n[2,:,:,:]=n3
-  
-  epsilon0=0.01
-  epsilond=np.array([0.015, 0.015, 0.015, 0, 0, 0])
-  lambda0=np.array([  [239, 210,  210, 0, 0, 0],    # unit gpa
-          [210, 239,  210, 0, 0, 0], 
-          [210, 210,  239, 0, 0, 0],
-          [0,    0,    0,  179, 0, 0],
-          [0,    0,    0,  0, 179, 0],
-          [0,    0,    0,  0,  0, 179]])
-  lambdadel=lambda0*0.1
-  kB=1.38e-23
-  V=(3.04e-10)**3/2 # Volume of a single atom
-  lambda0=lambda0*10**9/(kB*T0)*V # unit conversion
-  delta_kl=np.array([ 1, 1, 1, 0, 0, 0])
-  delta=np.array([[1, 0, 0],
-       [0, 1, 0],
-       [0, 0, 1]])
-  # index shift for 3D
-  voigt=np.array([[1, 4, 5],
-       [4, 2, 6],
-       [5, 6, 3]
-       ])
-
-  sigma0=np.zeros((1,6))
-  for i in range(6):
-    for k in range(6):
-        sigma0[i]=sigma0[i]+lambda0[i,k]*epsilon0*delta_kl[k]
-
-  SIGMA0=np.zeros((3,3))
-  SIGMA0[0,0]=sigma0[0]
-  SIGMA0[1,1]=sigma0[1]
-  SIGMA0[2,2]=sigma0[2]
-  SIGMA0[0,1]=sigma0[3]
-  SIGMA0[1,0]=sigma0[3]
-  SIGMA0[0,2]=sigma0[4]
-  SIGMA0[2,0]=sigma0[4]
-  SIGMA0[1,2]=sigma0[5]
-  SIGMA0[2,1]=sigma0[5]
-
-  sigmadel=np.zeros((1,6))
-  for i in range(6):
-      for k in range(6): 
-          sigmadel[i]=sigmadel[i]+lambdadel[i,k]*epsilon0*delta_kl[k]
-
-  SIGMADEL=np.zeros((3,3))
-  SIGMADEL[0,0]=sigmadel[0]
-  SIGMADEL[1,1]=sigmadel[1]
-  SIGMADEL[2,2]=sigmadel[2]
-  SIGMADEL[0,1]=sigmadel[3]
-  SIGMADEL[1,0]=sigmadel[3]
-  SIGMADEL[0,2]=sigmadel[4]
-  SIGMADEL[2,0]=sigmadel[4]
-  SIGMADEL[1,2]=sigmadel[5]
-  SIGMADEL[2,1]=sigmadel[5]
-  
-  omega=np.zeros((3,3,N,N,N))
-  omega2=np.zeros((3,3,N,N,N))
-
-  for i in range(3):
-    for j in range(3):
-      for k in range(3):
-        for l in range(3):
-          omega[i,j,:,:,:]=omega[i,j,:,:,:]+(lambda0[voigt[i,k],voigt[l,j]]*n[k,:,:,:]*n[l,:,:,:])
-
-  deter=omega[0,0,:,:,:]*(omega[1,1,:,:,:]*omega[2,2,:,:,:]-omega[1,2,:,:,:]*omega[2,1,:,:,:])-omega[0,1,:,:,:] \
-     *(omega[1,0,:,:,:]*omega[2,2,:,:,:]-omega[1,2,:,:,:]*omega[2,0,:,:,:])+omega[0,2,:,:,:]*(omega[1,0,:,:,:]*omega[2,1,:,:,:]-omega[1,1,:,:,:]*omega[2,0,:,:,:])
-  deter[deter==0]=999999999999999999
-  deter=1.0/deter
-  omega2[0,0,:,:,:]=deter*(omega[1,1,:,:,:]*omega[2,2,:,:,:]-omega[1,2,:,:,:]*omega[2,1,:,:,:])
-  omega2[0,1,:,:,:]=deter*(omega[0,2,:,:,:]*omega[2,1,:,:,:]-omega[0,1,:,:,:]*omega[2,2,:,:,:])
-  omega2[0,2,:,:,:]=deter*(omega[0,1,:,:,:]*omega[1,2,:,:,:]-omega[1,1,:,:,:]*omega[0,2,:,:,:])
-  omega2[1,0,:,:,:]=deter*(omega[1,2,:,:,:]*omega[2,0,:,:,:]-omega[1,0,:,:,:]*omega[2,2,:,:,:])
-  omega2[1,1,:,:,:]=deter*(omega[0,0,:,:,:]*omega[2,2,:,:,:]-omega[0,2,:,:,:]*omega[2,0,:,:,:])
-  omega2[1,2,:,:,:]=deter*(omega[0,2,:,:,:]*omega[1,0,:,:,:]-omega[1,2,:,:,:]*omega[0,0,:,:,:])
-  omega2[2,0,:,:,:]=deter*(omega[1,0,:,:,:]*omega[2,1,:,:,:]-omega[1,1,:,:,:]*omega[2,0,:,:,:])
-  omega2[2,1,:,:,:]=deter*(omega[0,1,:,:,:]*omega[2,0,:,:,:]-omega[0,0,:,:,:]*omega[2,1,:,:,:])
-  omega2[2,2,:,:,:]=deter*(omega[0,0,:,:,:]*omega[1,1,:,:,:]-omega[1,0,:,:,:]*omega[0,1,:,:,:])
-  omega=omega2
-
-  sigmad=np.zeros((1,6))
-  for i in range(6):
-      for k in range(6):
-          sigmad[i]=sigmad[i]+lambda0[i,k]*epsilond[k]
-
-
-  SIGMAd=np.zeros((3,3))
-  SIGMAd[0,0]=sigmad[0]
-  SIGMAd[1,1]=sigmad[1]
-  SIGMAd[2,2]=sigmad[2]
-  SIGMAd[0,1]=sigmad[3]
-  SIGMAd[1,0]=sigmad[3]
-  SIGMAd[0,2]=sigmad[4]
-  SIGMAd[2,0]=sigmad[4]
-  SIGMAd[1,2]=sigmad[5]
-  SIGMAd[2,1]=sigmad[5]
-
-  g=np.zeros((3,N,N,N))
-  g[0,:,:,:]=HH
-  g[1,:,:,:]=KK
-  g[2,:,:,:]=LL
-
-  mod2=np.zeros((3,3,N,N,N))
-  for i in range(3):
-      for j in range(3):
-          mod2[i,j,:,:,:]=mod[:,:,:]
-
-  G=omega/(mod2**2)    
-
-  # convert epsilond from vertor to tensor
-  temp=epsilond
-  epsilond[0,0]=temp[0]
-  epsilond[1,1]=temp[1]
-  epsilond[2,2]=temp[2]
-  epsilond[0,1]=temp[3]
-  epsilond[1,0]=temp[3]
-  epsilond[0,2]=temp[4]
-  epsilond[2,0]=temp[4]
-  epsilond[1,2]=temp[5]
-  epsilond[2,1]=temp[5]
-
-  iGgsigma0=np.zeros((3,N,N,N))
-  for k in range(3):
-    for i in range(3):
-      for j in range(3):
-        
-        aaa=1j*np.squeeze(G[i,k,:,:,:])*np.squeeze(g[j,:,:,:])*SIGMA0[i,j] 
-        iGgsigma0[k,:,:,:]=np.squeeze(iGgsigma0[k,:,:,:])-aaa # -iG_ik*g_j*sigma0_ij; zeroth order multiplier before delta_n 
-      
-  SIGMA00=np.zeros((3,3,N,N,N))
-  for i in range(3):
-      for j in range(3):
-          SIGMA00[i,j,:,:,:]=SIGMA0[i,j]+SIGMA00[i,j,:,:,:]
-      
-  
-
-  SIGMADEL0=np.zeros((3,3,N,N,N))
-  for i in range(3):
-      for j in range(3):
-          SIGMADEL0[i,j,:,:,:]=SIGMADEL[i,j]+SIGMADEL0[i,j,:,:,:]
-
-
-  temp=epsilon0
-  epsilon00=np.zeros((3,3,N,N,N))
-  epsilon00[0,0,:,:,:]=temp
-  epsilon00[1,1,:,:,:]=temp
-  epsilon00[2,2,:,:,:]=temp
-  epsilon00[0,1,:,:,:]=0
-  epsilon00[1,0,:,:,:]=0
-  epsilon00[0,2,:,:,:]=0
-  epsilon00[2,0,:,:,:]=0
-  epsilon00[1,2,:,:,:]=0
-  epsilon00[2,1,:,:,:]=0
-
-  return SIGMA00,SIGMADEL0,omega,G,g,n,delta,epsilon00,lambda0,lambdadel,iGgsigma0
-
-
 '''Update rule '''
 SS=tf.log(nr/(1-nr))
 Sk=tf.fft3d(SS)
@@ -293,7 +128,7 @@ def make_kernel(a):
 
 
 def calc_op(nr):
-    nrop=nr*tf.exp(-1j*2*pi*(1/2*X+0.5*Y+0.5*Z))
+    nrop=nr*tf.exp(-1j*2*pi*(1/2*XX+0.5*YY+0.5*ZZ))
     paddings=tf.constant([[0,1],[0,1],[0,1]])
     nrpad=tf.pad(nrop,paddings,"REFLECT")
     nrpad=tf.expand_dims(tf.expand_dims(nrpad,0),-1)
